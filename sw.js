@@ -1,4 +1,4 @@
-const CACHE_NAME = "nonstop-cache-v4";
+const CACHE_NAME = "smartshop-cache-v1";
 
 // Само статични asset-и се кешират — JS и HTML ВИНАГИ от мрежата
 const STATIC_CACHE = [

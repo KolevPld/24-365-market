@@ -1,6 +1,6 @@
 {
-  "name": "Нон Стоп Акбар",
-  "short_name": "Нон Стоп",
+  "name": "SmartShop",
+  "short_name": "SmartShop",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#1a1a2e",

@@ -4,6 +4,8 @@ import {
   collection,
   addDoc,
   getDocs,
+  getDoc,
+  setDoc,
   query,
   orderBy,
   where,
@@ -36,7 +38,28 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
-const ADMIN_EMAIL = "kmet.zapaden@gmail.com";
+
+// --------------------------------------------------
+// ⚙️ App Settings (loaded from Firestore)
+// --------------------------------------------------
+let appSettings = null;
+const SETTINGS_REF = doc(db, "settings", "config");
+
+function getStores() {
+  return appSettings?.stores?.length
+    ? appSettings.stores
+    : [{ id: "1", name: "Магазин 1" }, { id: "2", name: "Магазин 2" }];
+}
+function getOwnerCategories() {
+  return (appSettings?.owners || []).map(o => o.name);
+}
+function getCurrencySymbol() {
+  const c = appSettings?.currency || "EUR";
+  return c === "EUR" ? "€" : c === "BGN" ? "лв." : "$";
+}
+function getBusinessName() {
+  return appSettings?.businessName || "SmartShop";
+}
 
 // --------------------------------------------------
 // 👤 Email Login / Register
@@ -118,7 +141,7 @@ function formatMoney(val) {
   return Number(val || 0).toLocaleString("bg-BG", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
-  }) + " €";
+  }) + " " + getCurrencySymbol();
 }
 
 function escHtml(s) {
@@ -134,28 +157,61 @@ function showStatusMsg(msg, durationMs = 3000) {
   setTimeout(() => { statusDiv.textContent = prev; }, durationMs);
 }
 
-onAuthStateChanged(auth, user => {
+onAuthStateChanged(auth, async user => {
   const isLoggedIn = !!(user && !user.isAnonymous);
-  const isAdmin = isLoggedIn && user.email === ADMIN_EMAIL;
 
   if (isLoggedIn) {
-    if (statusDiv) statusDiv.textContent = `🔓 Влязъл: ${user.email}${isAdmin ? " (админ)" : ""}`;
-    document.body.classList.toggle("admin", isAdmin);
-
-    document.getElementById("loginScreen")?.classList.add("hidden");
-    document.getElementById("app")?.classList.remove("hidden");
-    document.getElementById("bottomNav")?.classList.remove("hidden");
-
-    window.showScreen?.("add");
-    loadRecords();
+    if (statusDiv) statusDiv.textContent = "⏳ Зареждане...";
+    try {
+      const snap = await getDoc(SETTINGS_REF);
+      if (snap.exists()) {
+        appSettings = snap.data();
+        const isAdmin = user.email === appSettings.adminEmail;
+        initAppWithSettings(user, isAdmin);
+      } else {
+        // No settings yet — show wizard
+        document.getElementById("loginScreen")?.classList.add("hidden");
+        document.getElementById("app")?.classList.add("hidden");
+        document.getElementById("bottomNav")?.classList.add("hidden");
+        showWizard(user);
+      }
+    } catch(e) {
+      console.error("Settings load error:", e);
+      // Fallback: treat as non-admin
+      initAppWithSettings(user, false);
+    }
   } else {
     if (statusDiv) statusDiv.textContent = "🔐 Моля, влез с имейл и парола.";
     document.body.classList.remove("admin");
-
+    appSettings = null;
     document.getElementById("loginScreen")?.classList.remove("hidden");
     document.getElementById("app")?.classList.add("hidden");
+    document.getElementById("bottomNav")?.classList.add("hidden");
+    document.getElementById("setupWizard")?.classList.add("hidden");
   }
 });
+
+function initAppWithSettings(user, isAdmin) {
+  if (statusDiv) statusDiv.textContent = `🔓 Влязъл: ${user.email}${isAdmin ? " (админ)" : ""}`;
+  document.body.classList.toggle("admin", isAdmin);
+
+  // Update business name in login title (visible if user logs out)
+  const loginTitle = document.getElementById("loginTitle");
+  if (loginTitle) loginTitle.textContent = getBusinessName();
+
+  renderStorePills();
+  renderOwnerCategoryOptions();
+  renderFilterStoreOptions();
+  renderOwnerButtons();
+
+  document.getElementById("setupWizard")?.classList.add("hidden");
+  document.getElementById("loginScreen")?.classList.add("hidden");
+  document.getElementById("app")?.classList.remove("hidden");
+  document.getElementById("bottomNav")?.classList.remove("hidden");
+
+  window.showScreen?.("add");
+  loadRecords();
+}
 
 // --------------------------------------------------
 // 🔄 Локално обновяване на UI (без Firestore заявка)
@@ -249,7 +305,7 @@ async function addRecord() {
     const docRef = await addDoc(collection(db, "records"), { date, type, method, amount, note, category, store, imageUrl });
     records.unshift({ id: docRef.id, date, type, method, amount, note, category, store, imageUrl });
 
-    if (OWNER_CATEGORIES.includes(category)) {
+    if (getOwnerCategories().includes(category)) {
       try {
         await syncOwnerRecord(docRef.id, { name: category, amount, note, date, type });
       } catch (ownerErr) {
@@ -399,9 +455,9 @@ async function saveEditedRecord() {
     if (idx !== -1) records[idx] = { ...records[idx], date, type, method, amount, note, category, store, imageUrl: finalImageUrl };
 
     // Синхронизирай собственици
-    if (OWNER_CATEGORIES.includes(category)) {
+    if (getOwnerCategories().includes(category)) {
       await syncOwnerRecord(savedId, { name: category, amount, note, date, type });
-    } else if (OWNER_CATEGORIES.includes(oldCategory)) {
+    } else if (getOwnerCategories().includes(oldCategory)) {
       // Категорията е сменена от Митко/Велко → изтрий собственик запис
       await deleteOwnerByLinkedId(savedId);
     }
@@ -453,7 +509,7 @@ window.deleteRecord = deleteRecord;
 // --------------------------------------------------
 // 🔗 Синхронизация owners ↔ records
 // --------------------------------------------------
-const OWNER_CATEGORIES = ["Митко", "Велко"];
+// OWNER_CATEGORIES is now dynamic — use getOwnerCategories()
 
 async function syncOwnerRecord(recordId, { name, amount, note, date, type }) {
   const month = date.slice(0, 7);
@@ -622,12 +678,86 @@ window.clearFilters = clearFilters;
 // 🏪 Хелпъри за магазин
 // --------------------------------------------------
 function storeLabel(storeKey) {
-  if (storeKey === "1")          return "🏪 М1";
-  if (storeKey === "2")          return "🏪 М2";
-  if (storeKey === "КасаКеш")    return "💰 К.Кеш";
-  if (storeKey === "КасаБанка")  return "🏦 К.Банка";
-  return "—";
+  if (storeKey === "КасаКеш")   return "💰 К.Кеш";
+  if (storeKey === "КасаБанка") return "🏦 К.Банка";
+  const store = getStores().find(s => s.id === storeKey);
+  if (store) return `🏪 ${store.name}`;
+  return storeKey || "—";
 }
+
+function renderStorePills() {
+  const stores = getStores();
+  const pillRow   = document.getElementById("storePills");
+  const storeSel  = document.getElementById("store");
+  if (!pillRow || !storeSel) return;
+
+  pillRow.innerHTML = stores.map((s, i) =>
+    `<button type="button" class="pill-btn${i === 0 ? ' active' : ''}"
+             data-val="${s.id}" onclick="setPill('store','${s.id}',this)">${s.name}</button>`
+  ).join('') +
+    `<button type="button" class="pill-btn" data-val="КасаКеш"   onclick="setPill('store','КасаКеш',this)">💰 К.Кеш</button>` +
+    `<button type="button" class="pill-btn" data-val="КасаБанка" onclick="setPill('store','КасаБанка',this)">🏦 К.Банка</button>`;
+
+  storeSel.innerHTML =
+    stores.map(s => `<option value="${s.id}">${s.name}</option>`).join('') +
+    `<option value="КасаКеш">Каса Кеш</option>` +
+    `<option value="КасаБанка">Каса Банка</option>`;
+
+  if (stores.length > 0) storeSel.value = stores[0].id;
+}
+
+function renderOwnerCategoryOptions() {
+  const catSelect    = document.getElementById("category");
+  const filterCatSel = document.getElementById("filterCategory");
+  const ownerNames   = getOwnerCategories();
+
+  [catSelect, filterCatSel].forEach(sel => {
+    if (!sel) return;
+    sel.querySelectorAll('.owner-cat-opt').forEach(el => el.remove());
+    const drugoOpt = [...sel.options].find(o => o.value === "Друго");
+    ownerNames.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name; opt.className = 'owner-cat-opt';
+      if (drugoOpt) sel.insertBefore(opt, drugoOpt); else sel.appendChild(opt);
+    });
+  });
+}
+
+function renderFilterStoreOptions() {
+  const sel = document.getElementById("filterStore");
+  if (!sel) return;
+  const stores = getStores();
+  sel.innerHTML =
+    `<option value="">Всички магазини</option>` +
+    stores.map(s => `<option value="${s.id}">🏪 ${s.name}</option>`).join('') +
+    `<option value="КасаКеш">💰 Каса Кеш</option>` +
+    `<option value="КасаБанка">🏦 Каса Банка</option>`;
+}
+
+function renderOwnerButtons() {
+  const segEl = document.getElementById("ownerNameSegment");
+  const selEl = document.getElementById("ownerName");
+  if (!segEl || !selEl) return;
+  const owners = getOwnerCategories();
+  if (!owners.length) {
+    segEl.innerHTML = '<span style="color:var(--text3);font-size:0.875rem;">Няма настроени собственици</span>';
+    selEl.innerHTML = '';
+    return;
+  }
+  segEl.innerHTML = owners.map((name, i) =>
+    `<button type="button" class="segment-btn${i === 0 ? ' active' : ''}"
+             onclick="ownerSelectBtn('${name}',this)">${name}</button>`
+  ).join('');
+  selEl.innerHTML = owners.map(name => `<option value="${name}">${name}</option>`).join('');
+  selEl.value = owners[0];
+}
+
+window.ownerSelectBtn = function(name, btn) {
+  document.getElementById("ownerName").value = name;
+  btn.closest('.segment').querySelectorAll('.segment-btn')
+    .forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+};
 
 window.filterByStore = function(store) {
   const el = document.getElementById("filterStore");
@@ -1063,8 +1193,10 @@ function renderStoreComparison() {
     return p ? new Date(+p[1], +p[2]-1, +p[3]) : null;
   };
 
-  // По магазин (само М1 и М2)
-  const m = { "1": { inc:0, exp:0 }, "2": { inc:0, exp:0 } };
+  // По магазин (всички настроени магазини)
+  const configStores = getStores();
+  const m = {};
+  configStores.forEach(s => { m[s.id] = { inc: 0, exp: 0 }; });
   // Каса Кеш = ВСИЧКИ Кеш транзакции (М1 + М2 + стара Каса)
   // Каса Банка = ВСИЧКИ Карта/Банка транзакции
   let kkInc=0, kkExp=0, kbInc=0, kbExp=0;
@@ -1083,8 +1215,8 @@ function renderStoreComparison() {
     // Общо (всеки запис се брои веднъж)
     if (isInc) tI += amount; else tE += amount;
 
-    // По магазин (само М1, М2)
-    if (store === "1" || store === "2") {
+    // По магазин (всички настроени)
+    if (m[store]) {
       if (isInc) m[store].inc += amount; else m[store].exp += amount;
     }
 
@@ -1096,13 +1228,11 @@ function renderStoreComparison() {
     }
   });
 
-  const s1  = m["1"].inc - m["1"].exp;
-  const s2  = m["2"].inc - m["2"].exp;
   const kkS = kkInc - kkExp;
   const kbS = kbInc - kbExp;
   const tS  = tI - tE;
 
-  const f   = n => n.toFixed(2) + " €";
+  const f   = n => n.toFixed(2) + " " + getCurrencySymbol();
   const cls = n => n >= 0 ? "pos" : "neg";
   const th  = s => `<th class="sc-th">${s}</th>`;
   const td2 = (v, c) => `<td class="sc-val"><span class="sc-num ${c}">${f(v)}</span></td>`;
@@ -1116,6 +1246,15 @@ function renderStoreComparison() {
       <div class="sc-card-row sc-card-saldo"><span class="sc-card-label"><strong>Салдо</strong></span><span class="sc-num-xl ${cls(sal)}">${f(sal)}</span></div>
     </div>`;
 
+  const storeHeaders = configStores.map(s => th(`🏪 ${s.name}`)).join('');
+  const storeIncRow  = configStores.map(s => td2(m[s.id]?.inc || 0, "pos")).join('');
+  const storeExpRow  = configStores.map(s => td2(m[s.id]?.exp || 0, "neg")).join('');
+  const storeSalRow  = configStores.map(s => { const sal = (m[s.id]?.inc||0)-(m[s.id]?.exp||0); return tdB(sal,cls(sal)); }).join('');
+  const storeCards   = configStores.map(s => {
+    const sal = (m[s.id]?.inc||0) - (m[s.id]?.exp||0);
+    return mkCard(`🏪 ${s.name}`, m[s.id]?.inc||0, m[s.id]?.exp||0, sal);
+  }).join('');
+
   el.innerHTML = `
     <h3><i class="fa-solid fa-scale-balanced"></i> Сравнение — текущ месец</h3>
 
@@ -1124,23 +1263,23 @@ function renderStoreComparison() {
       <thead>
         <tr>
           <th class="sc-label-th"></th>
-          ${th("🏪 М1")}${th("🏪 М2")}${th("💰 Каса Кеш")}${th("🏦 Каса Банка")}${th("📊 Общо")}
+          ${storeHeaders}${th("💰 Каса Кеш")}${th("🏦 Каса Банка")}${th("📊 Общо")}
         </tr>
       </thead>
       <tbody>
         <tr class="sc-row">
           <td class="sc-label">Приходи</td>
-          ${td2(m["1"].inc,"pos")}${td2(m["2"].inc,"pos")}${td2(kkInc,"pos")}${td2(kbInc,"pos")}
+          ${storeIncRow}${td2(kkInc,"pos")}${td2(kbInc,"pos")}
           <td class="sc-val"><span class="sc-num-lg pos">${f(tI)}</span></td>
         </tr>
         <tr class="sc-row">
           <td class="sc-label">Разходи</td>
-          ${td2(m["1"].exp,"neg")}${td2(m["2"].exp,"neg")}${td2(kkExp,"neg")}${td2(kbExp,"neg")}
+          ${storeExpRow}${td2(kkExp,"neg")}${td2(kbExp,"neg")}
           <td class="sc-val"><span class="sc-num-lg neg">${f(tE)}</span></td>
         </tr>
         <tr class="sc-row sc-saldo">
           <td class="sc-label"><strong>Салдо</strong></td>
-          ${tdB(s1,cls(s1))}${tdB(s2,cls(s2))}${tdB(kkS,cls(kkS))}${tdB(kbS,cls(kbS))}
+          ${storeSalRow}${tdB(kkS,cls(kkS))}${tdB(kbS,cls(kbS))}
           <td class="sc-val"><span class="sc-num-xl ${cls(tS)}">${f(tS)}</span></td>
         </tr>
       </tbody>
@@ -1148,11 +1287,10 @@ function renderStoreComparison() {
 
     <!-- Карти (мобилен изглед) -->
     <div class="sc-cards">
-      ${mkCard("🏪 М1",         m["1"].inc, m["1"].exp, s1)}
-      ${mkCard("🏪 М2",         m["2"].inc, m["2"].exp, s2)}
-      ${mkCard("💰 Каса Кеш",   kkInc,      kkExp,      kkS)}
-      ${mkCard("🏦 Каса Банка", kbInc,      kbExp,      kbS)}
-      ${mkCard("📊 Общо",       tI,         tE,         tS)}
+      ${storeCards}
+      ${mkCard("💰 Каса Кеш",   kkInc, kkExp, kkS)}
+      ${mkCard("🏦 Каса Банка", kbInc, kbExp, kbS)}
+      ${mkCard("📊 Общо",       tI,    tE,    tS)}
     </div>`;
 }
 
@@ -1386,7 +1524,7 @@ function checkTaskReminders() {
     if (_firedReminders.has(key)) return;
 
     if (t.reminderDate === nowYM && t.reminderTime === nowHM) {
-      new Notification('📝 Нон Стоп — Бележка', {
+      new Notification(`📝 ${getBusinessName()} — Бележка`, {
         body: t.text,
         icon: 'icon-192.png',
         tag:  key   // предотвратява дублиране на OS ниво
@@ -1428,7 +1566,7 @@ window.testTaskReminder = function() {
     if (statusEl) statusEl.textContent = '⚠️ Няма бележки с напомняне';
     alert('Няма бележки с напомняне за тест.'); return;
   }
-  new Notification('📝 Нон Стоп — Бележка (Тест)', {
+  new Notification(`📝 ${getBusinessName()} — Бележка (Тест)`, {
     body: `${t.text} | ${t.reminderDate} ${t.reminderTime}`,
     icon: 'icon-192.png'
   });
@@ -1469,7 +1607,7 @@ window.toggleNotifications = async function(on) {
 
 window.sendTestNotif = function() {
   if (!('Notification' in window) || Notification.permission !== 'granted') { alert('Разреши известията първо.'); return; }
-  new Notification('🏪 Нон Стоп — Тест', { body: 'Известията работят!', icon: 'icon-192.png' });
+  new Notification(`🏪 ${getBusinessName()} — Тест`, { body: 'Известията работят!', icon: 'icon-192.png' });
 };
 
 function scheduleReminder() {
@@ -1480,7 +1618,7 @@ function scheduleReminder() {
     const today = new Date().toISOString().slice(0, 10);
     const hasToday = records.some(r => (r.date||'').startsWith(today));
     if (!hasToday && localStorage.getItem('ns_notif') === '1' && Notification.permission === 'granted') {
-      new Notification('🏪 Нон Стоп — Напомняне', { body: `Няма запис за днес (${today})!`, icon: 'icon-192.png' });
+      new Notification(`🏪 ${getBusinessName()} — Напомняне`, { body: `Няма запис за днес (${today})!`, icon: 'icon-192.png' });
     }
     scheduleReminder();
   }, target - now);
@@ -1537,7 +1675,7 @@ window.exportFilteredToExcel = function() {
 
   // Име на файла с текущия месец от филтъра или текущата дата
   const month = (filteredRecords[0]?.date || new Date().toISOString()).slice(0, 7);
-  XLSX.writeFile(wb, `NonStop_Отчет_${month}.xlsx`);
+  XLSX.writeFile(wb, `${getBusinessName().replace(/[^\w\u0400-\u04FF]/g,'_')}_Отчет_${month}.xlsx`);
 };
 
 // --------------------------------------------------
@@ -1601,20 +1739,14 @@ function loadOwnersForMonth() {
 }
 
 function renderOwners(entries) {
-  const mitko = entries.filter(e => e.name === "Митко");
-  const velko  = entries.filter(e => e.name === "Велко");
+  const container  = document.getElementById("ownersTablesContainer");
+  if (!container) return;
+  const ownerNames = getOwnerCategories();
+  const fmt = v => (parseFloat(v) || 0).toFixed(2) + " " + getCurrencySymbol();
 
-  const fmt = v => v.toFixed(2) + " €";
-
-  // Пресмята приходи/разходи за собственик
-  function calcSums(arr) {
-    let inc = 0, exp = 0;
-    for (const e of arr) {
-      const a = parseFloat(e.amount) || 0;
-      if ((e.type || "").toLowerCase().includes("приход")) inc += a;
-      else exp += a;
-    }
-    return { inc, exp, net: inc - exp };
+  if (!ownerNames.length) {
+    container.innerHTML = `<div class="card"><p style="text-align:center;padding:20px;color:var(--text2);">Няма настроени собственици.</p></div>`;
+    return;
   }
 
   const typeBadge = t => {
@@ -1622,54 +1754,74 @@ function renderOwners(entries) {
     return `<span class="owners-type-badge ${isInc ? 'owners-income' : 'owners-expense'}">${t || "—"}</span>`;
   };
 
-  const rowsHtml = (arr) => {
+  let html = '';
+  const allSums = [];
+
+  ownerNames.forEach(ownerName => {
+    const arr   = entries.filter(e => e.name === ownerName);
+    let inc = 0, exp = 0;
+    arr.forEach(e => {
+      const a = parseFloat(e.amount) || 0;
+      if ((e.type || "").toLowerCase().includes("приход")) inc += a; else exp += a;
+    });
     const total = arr.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+    allSums.push({ name: ownerName, inc, exp, net: inc - exp, total });
+
     const dataRows = arr.map(e => `
       <tr>
         <td>${e.date || "—"}</td>
-        <td class="mono">${fmt(parseFloat(e.amount)||0)}</td>
+        <td class="mono">${fmt(e.amount)}</td>
         <td>${typeBadge(e.type)}</td>
         <td>${escHtml(e.note || "")}</td>
-        <td>${e.linkedRecordId ? '<span title="Свързан с Отчети" style="color:var(--text3);font-size:.75rem">🔗</span>' : `<button class="btn-danger btn-sm" onclick="deleteOwnerEntry('${e.id}')">🗑️</button>`}</td>
-      </tr>`).join("") || `<tr><td colspan="5" class="owners-empty">Няма записи</td></tr>`;
-    const totalRow = `
-      <tr class="owners-total-row">
-        <td class="owners-total-label">Общо за месеца:</td>
-        <td class="mono owners-total-amount">${fmt(total)}</td>
-        <td colspan="3"></td>
-      </tr>`;
-    return dataRows + totalRow;
-  };
+        <td>${e.linkedRecordId
+          ? '<span title="Свързан с Отчети" style="color:var(--text3);font-size:.75rem">🔗</span>'
+          : `<button class="btn-danger btn-sm" onclick="deleteOwnerEntry('${e.id}')">🗑️</button>`}</td>
+      </tr>`).join('') || `<tr><td colspan="5" class="owners-empty">Няма записи</td></tr>`;
 
-  document.getElementById("ownersMitkoBody").innerHTML = rowsHtml(mitko);
-  document.getElementById("ownersVelkoBody").innerHTML  = rowsHtml(velko);
+    html += `
+      <div class="card owners-table-card">
+        <div class="owners-table-title">💼 ${escHtml(ownerName)}</div>
+        <div class="table-responsive">
+          <table class="owners-table">
+            <thead><tr><th>Дата</th><th>Сума</th><th>Тип</th><th>Бележка</th><th></th></tr></thead>
+            <tbody>
+              ${dataRows}
+              <tr class="owners-total-row">
+                <td class="owners-total-label">Общо за месеца:</td>
+                <td class="mono owners-total-amount">${fmt(total)}</td>
+                <td colspan="3"></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  });
 
-  const sm = calcSums(mitko);
-  const sv = calcSums(velko);
-  const totalM = mitko.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
-  const totalV = velko.reduce((s, e)  => s + (parseFloat(e.amount) || 0), 0);
+  // Summary table
+  const headerCols = allSums.map(s => `<th>${escHtml(s.name)}</th>`).join('');
+  const incRow     = allSums.map(s => `<td class="mono income">${fmt(s.inc)}</td>`).join('');
+  const expRow     = allSums.map(s => `<td class="mono expense">${fmt(s.exp)}</td>`).join('');
+  const netRow     = allSums.map(s =>
+    `<td class="mono ${s.net >= 0 ? 'income' : 'expense'}">${s.net >= 0 ? '+' : ''}${fmt(s.net)}</td>`).join('');
+  const totRow     = allSums.map(s => `<td class="mono owners-grand-total-amount">${fmt(s.total)}</td>`).join('');
 
-  document.getElementById("ownersSummaryBody").innerHTML = `
-    <tr>
-      <td class="owners-summary-label">Приходи</td>
-      <td class="mono income">${fmt(sm.inc)}</td>
-      <td class="mono income">${fmt(sv.inc)}</td>
-    </tr>
-    <tr>
-      <td class="owners-summary-label">Разходи</td>
-      <td class="mono expense">${fmt(sm.exp)}</td>
-      <td class="mono expense">${fmt(sv.exp)}</td>
-    </tr>
-    <tr class="owners-diff-row">
-      <td class="owners-summary-label">Нето</td>
-      <td class="mono ${sm.net >= 0 ? 'income' : 'expense'}">${sm.net >= 0 ? "+" : ""}${fmt(sm.net)}</td>
-      <td class="mono ${sv.net >= 0 ? 'income' : 'expense'}">${sv.net >= 0 ? "+" : ""}${fmt(sv.net)}</td>
-    </tr>
-    <tr class="owners-grand-total-row">
-      <td class="owners-summary-label">Общо</td>
-      <td class="mono owners-grand-total-amount">${fmt(totalM)}</td>
-      <td class="mono owners-grand-total-amount">${fmt(totalV)}</td>
-    </tr>`;
+  html += `
+    <div class="card owners-table-card">
+      <div class="owners-table-title">📊 Обобщение</div>
+      <div class="table-responsive">
+        <table class="owners-table">
+          <thead><tr><th></th>${headerCols}</tr></thead>
+          <tbody>
+            <tr><td class="owners-summary-label">Приходи</td>${incRow}</tr>
+            <tr><td class="owners-summary-label">Разходи</td>${expRow}</tr>
+            <tr class="owners-diff-row"><td class="owners-summary-label">Нето</td>${netRow}</tr>
+            <tr class="owners-grand-total-row"><td class="owners-summary-label">Общо</td>${totRow}</tr>
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  container.innerHTML = html;
 }
 
 window.addOwnerEntry = async function() {
@@ -1703,5 +1855,108 @@ window.deleteOwnerEntry = async function(id) {
     await deleteDoc(doc(db, "owners", id));
   } catch(err) {
     alert("Грешка при изтриване: " + err.message);
+  }
+};
+
+// ════════════════════════════════════════════════
+// 🧙 SETUP WIZARD
+// ════════════════════════════════════════════════
+let _wizUser = null;
+
+function showWizard(user) {
+  _wizUser = user;
+  document.getElementById("setupWizard")?.classList.remove("hidden");
+  wizShowStep(1);
+}
+
+function wizShowStep(step) {
+  for (let i = 1; i <= 3; i++) {
+    document.getElementById(`wizStep${i}`)?.classList.toggle("hidden", i !== step);
+  }
+}
+
+window.wizSelectCurrency = function(currency, btn) {
+  document.getElementById("wizCurrency").value = currency;
+  btn.closest('.segment').querySelectorAll('.segment-btn')
+    .forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+};
+
+window.wizNext = function(step) {
+  if (step === 1) {
+    const name = document.getElementById("wizBusinessName")?.value?.trim();
+    if (!name) { alert("Въведи ime на бизнеса!"); return; }
+    wizShowStep(2);
+  } else if (step === 2) {
+    const names = [...document.querySelectorAll('.wiz-store-input')]
+      .map(i => i.value.trim()).filter(Boolean);
+    if (!names.length) { alert("Добави поне 1 обект!"); return; }
+    wizShowStep(3);
+  }
+};
+
+window.wizBack = function(step) {
+  wizShowStep(step - 1);
+};
+
+window.wizAddStore = function() {
+  const list = document.getElementById("wizStoresList");
+  const count = list.querySelectorAll('.wiz-store-input').length;
+  if (count >= 5) return;
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.className = 'wiz-store-input';
+  inp.placeholder = `Напр. Магазин ${count + 1}`;
+  inp.maxLength = 30;
+  inp.autocomplete = 'off';
+  list.appendChild(inp);
+  if (count + 1 >= 5) document.getElementById("wizAddStoreBtn")?.classList.add("hidden");
+};
+
+window.wizAddOwner = function() {
+  const list = document.getElementById("wizOwnersList");
+  const count = list.querySelectorAll('.wiz-owner-input').length;
+  if (count >= 5) return;
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.className = 'wiz-owner-input';
+  inp.placeholder = `Напр. Собственик ${count + 1}`;
+  inp.maxLength = 30;
+  inp.autocomplete = 'off';
+  list.appendChild(inp);
+  if (count + 1 >= 5) document.getElementById("wizAddOwnerBtn")?.classList.add("hidden");
+};
+
+window.wizFinish = async function() {
+  const btn = document.getElementById("wizFinishBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ Запазване..."; }
+
+  const businessName = document.getElementById("wizBusinessName")?.value?.trim() || "SmartShop";
+  const currency     = document.getElementById("wizCurrency")?.value || "BGN";
+
+  const stores = [...document.querySelectorAll('.wiz-store-input')]
+    .map((inp, i) => ({ id: String(i + 1), name: inp.value.trim() }))
+    .filter(s => s.name);
+
+  const owners = [...document.querySelectorAll('.wiz-owner-input')]
+    .map((inp, i) => ({ id: String(i + 1), name: inp.value.trim() }))
+    .filter(o => o.name);
+
+  const settings = {
+    businessName,
+    currency,
+    stores: stores.length ? stores : [{ id: "1", name: "Магазин 1" }],
+    owners,
+    adminEmail: _wizUser.email,
+    createdAt: new Date().toISOString()
+  };
+
+  try {
+    await setDoc(SETTINGS_REF, settings);
+    appSettings = settings;
+    initAppWithSettings(_wizUser, true);
+  } catch(err) {
+    alert("Грешка при запазване: " + err.message);
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-check"></i> Завърши'; }
   }
 };

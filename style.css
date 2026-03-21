@@ -1747,10 +1747,112 @@ body.admin .table-responsive.admin-only { display: block; }
 
   /* Заглавие */
   #screen-report::before {
-    content: "Нон Стоп — Финансов Отчет";
+    content: "SmartShop — Финансов Отчет";
     display: block;
     font-size: 16pt;
     font-weight: bold;
     margin-bottom: 12px;
   }
 }
+
+/* ════════════════════════════════════════════════
+   SETUP WIZARD
+   ════════════════════════════════════════════════ */
+
+.wiz-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 9999;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 20px 16px 40px;
+  overflow-y: auto;
+}
+
+.wiz-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 24px 32px;
+  width: 100%;
+  max-width: 440px;
+  box-shadow: var(--shadow-lg);
+}
+
+.wiz-step { display: flex; flex-direction: column; gap: 6px; }
+
+.wiz-logo {
+  font-size: 2.5rem;
+  text-align: center;
+  margin-bottom: 4px;
+  color: var(--green);
+}
+
+.wiz-header {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.wiz-subtitle {
+  font-size: 0.875rem;
+  color: var(--text2);
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.wiz-indicator {
+  font-size: 0.75rem;
+  color: var(--green);
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 16px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+#wizStoresList,
+#wizOwnersList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.wiz-store-input,
+.wiz-owner-input {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.9375rem;
+  padding: 12px 14px;
+  outline: none;
+  transition: border-color var(--transition);
+}
+.wiz-store-input:focus,
+.wiz-owner-input:focus {
+  border-color: var(--green);
+}
+
+.wiz-add-row-btn {
+  width: 100%;
+  margin-top: 4px;
+  margin-bottom: 16px;
+  min-height: 42px;
+  font-size: 0.875rem;
+}
+
+.wiz-nav-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+.wiz-nav-row .btn-secondary { flex: 1; }
+.wiz-nav-row .btn-primary   { flex: 2; }
