@@ -48,7 +48,7 @@ const SETTINGS_REF = doc(db, "settings", "config");
 function getStores() {
   return appSettings?.stores?.length
     ? appSettings.stores
-    : [{ id: "1", name: "Магазин 1" }, { id: "2", name: "Магазин 2" }];
+    : [{ id: "1", name: "Магазин 1" }];
 }
 function getOwnerCategories() {
   return (appSettings?.owners || []).map(o => o.name);
@@ -585,9 +585,9 @@ window.cancelEdit = function () {
 // 🔄 Филтри
 // --------------------------------------------------
 // ── Сортиране ─────────────────────────────────────────────────
-// Приоритет: Дата DESC → Магазин ASC (М1=1, М2=2, К.Кеш=3, К.Банка=4) → Тип ASC (Приход=1, Разход=2)
+// Приоритет: Дата DESC → Магазин ASC (М1=1, К.Кеш=2, К.Банка=3) → Тип ASC (Приход=1, Разход=2)
 function sortRecords(arr) {
-  const storeOrder = { "1": 1, "2": 2, "КасаКеш": 3, "КасаБанка": 4 };
+  const storeOrder = { "1": 1, "КасаКеш": 2, "КасаБанка": 3 };
   const typeOrder  = { "Приход": 1, "Разход": 2 };
   return arr.slice().sort((a, b) => {
     const dateCmp = (b.date || "").localeCompare(a.date || "");
@@ -605,7 +605,6 @@ function normStore(s) {
   const raw = String(s ?? "").trim();
   const v   = raw.toLowerCase();
   if (v === "1" || v === "м1" || v === "m1" || v.includes("магазин 1")) return "1";
-  if (v === "2" || v === "м2" || v === "m2" || v.includes("магазин 2")) return "2";
   if (raw === "КасаКеш"  || v === "касакеш"  || v === "каса кеш")  return "КасаКеш";
   if (raw === "КасаБанка" || v === "касабанка" || v === "каса банка") return "КасаБанка";
   if (v === "каса" || v === "kasa" || v === "cash") return "Каса"; // стари записи
@@ -616,7 +615,7 @@ function normStore(s) {
 // Ефективен магазин на запис — стара "Каса" се разпределя по метод
 function effectiveStore(r) {
   const s = normStore(r.store);
-  if (s === "1" || s === "2" || s === "КасаКеш" || s === "КасаБанка") return s;
+  if (s === "1" || s === "КасаКеш" || s === "КасаБанка") return s;
   // Стара "Каса" или празно → по метод
   return normMethod(r.method) === "Кеш" ? "КасаКеш" : "КасаБанка";
 }
@@ -1883,7 +1882,7 @@ window.wizSkip = function() {
   const defaultSettings = {
     businessName: "SmartShop",
     currency: "EUR",
-    stores: [{ id: "1", name: "Магазин 1" }, { id: "2", name: "Магазин 2" }],
+    stores: [{ id: "1", name: "Магазин 1" }],
     owners: [],
     adminEmail: _wizUser.email,
     createdAt: new Date().toISOString()
