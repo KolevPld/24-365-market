@@ -58,7 +58,7 @@ function getCurrencySymbol() {
   return c === "EUR" ? "€" : c === "BGN" ? "лв." : "$";
 }
 function getBusinessName() {
-  return appSettings?.businessName || "SmartShop";
+  return appSettings?.businessName || "24/365 Market";
 }
 
 // --------------------------------------------------
@@ -1856,7 +1856,7 @@ function wizShowStep(step) {
 window.wizSkip = function() {
   if (!_wizUser) return;
   const defaultSettings = {
-    businessName: "SmartShop",
+    businessName: "24/365 Market",
     currency: "EUR",
     stores: [{ id: "1", name: "Магазин 1" }],
     owners: [],
@@ -1924,7 +1924,7 @@ window.wizFinish = async function() {
   const btn = document.getElementById("wizFinishBtn");
   if (btn) { btn.disabled = true; btn.textContent = "⏳ Запазване..."; }
 
-  const businessName = document.getElementById("wizBusinessName")?.value?.trim() || "SmartShop";
+  const businessName = document.getElementById("wizBusinessName")?.value?.trim() || "24/365 Market";
   const currency     = document.getElementById("wizCurrency")?.value || "BGN";
 
   const stores = [...document.querySelectorAll('.wiz-store-input')]
