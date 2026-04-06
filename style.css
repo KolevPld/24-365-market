@@ -1856,3 +1856,12 @@ body.admin .table-responsive.admin-only { display: block; }
 }
 .wiz-nav-row .btn-secondary { flex: 1; }
 .wiz-nav-row .btn-primary   { flex: 2; }
+
+/* ── App Logo ─────────────────────────────────── */
+.app-logo{display:flex;align-items:flex-end;justify-content:center;margin-bottom:8px}
+.logo-24{font-family:"Bebas Neue",sans-serif;font-size:52px;color:#ff6b00;line-height:1;text-shadow:0 0 20px rgba(255,107,0,.4)}
+.logo-slash{font-family:"Bebas Neue",sans-serif;font-size:52px;color:#888;line-height:1;padding:0 2px}
+.logo-right{display:flex;flex-direction:column;align-items:flex-start;line-height:1}
+.logo-365{font-family:"Bebas Neue",sans-serif;font-size:52px;color:#f0f0f0;line-height:1}
+.logo-market{font-size:9px;font-weight:700;letter-spacing:5px;text-transform:uppercase;color:#666;align-self:flex-end}
+.logo-tagline{font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#ff6b00;align-self:flex-end;opacity:.85}
